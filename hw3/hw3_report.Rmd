@@ -1,0 +1,355 @@
+---
+title: "统计（机器）学习第三次作业报告"
+author: "林子开"
+date: "2023-10-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F)
+```
+
+
+
+
+# 数据分析岗位招聘数据集处理
+## 第一题：数据录入与简单清洗
+使用Rstudio提供的交互界面从excel中导入数据，然后根据各变量含义，对数据进行类型转换，然后求出各个岗位的平均薪资。使用的R代码如下：
+```{r}
+library(readxl)
+Mydata <- read_excel("D:/大三上学习资料/统计（机器）学习/hw3/Mydata.xlsx")
+Mydata$地区 = as.factor(Mydata$地区)
+Mydata$公司类别 = as.factor(Mydata$公司类别)
+Mydata$公司规模 = as.factor(Mydata$公司规模)
+Mydata$行业类别 = as.factor(Mydata$行业类别)
+Mydata$经验 = as.numeric(Mydata$经验)
+Mydata$学历 = factor(Mydata$学历,levels=c('无','中专','高中','大专','本科','硕士','博士' ))
+Mydata$人数 = as.numeric(Mydata$人数)
+Mydata$最低薪资 = as.numeric(Mydata$最低薪资)
+Mydata$最高薪资 = as.numeric(Mydata$最高薪资)
+Mydata$平均薪资 = (Mydata$最低薪资+Mydata$最高薪资)/2
+```
+
+
+## 第二题：绘制五个最高频次行业的频数直方图
+提取最高频次的5个行业类别的R代码以及绘制频数直方图如下所示：
+```{r}
+ind_freq = table(Mydata$行业类别)
+ind_freq = ind_freq[order(ind_freq,decreasing = T)]
+barplot(ind_freq[1:5],names.arg = names(ind_freq)[1:5],family='Simsun',
+        ylab='频数',xlab='',col=c('gold','grey','grey','grey','grey'),cex.names = 0.5,las=1)
+title('频次最高的5个行业类别的频数直方图')
+```
+
+频数最高的五个行业类别按照频数由高到低分别是： 互联网/电子商务，金融/投资/证券，计算机软件，快速消费品(食品、饮料、化妆品)，服装/纺织/皮革。
+
+其中，互联网/电子商务的频数远高于其他四个行业的频数，这可能与近年来互联网相关的产业遇到窗口期快速发展有关。
+
+此外，金融/投资/证券，与计算机软件频数相差不大。快速消费品(食品、饮料、化妆品)，与服装/纺织/皮革的频数相差也不是很大。
+
+
+## 第三题：词云图
+绘制的除去频数最高的5个行业的剩余行业词云图的R代码以及词云如下：
+```{r}
+library(wordcloud2)
+wordcloud2(ind_freq[-(1:5)],size=0.25)
+```
+
+## 第四题：分析对数平均工资
+根据定义，新增一列对数平均薪资，首先，绘制出对数平均薪资的直方图如下：
+```{r}
+Mydata$对数平均薪资 = log(Mydata$平均薪资)
+hist(Mydata$对数平均薪资,xlab='对数平均薪资',ylab='频数',main='对数平均薪资的频数直方图')
+
+```
+
+可以看出，在取对数之后，对数平均薪资的分布接近于正态分布，说明原的分布呈现比较严重的右偏，也即大多数岗位的薪资是比较低的。
+
+使用`summary()`查看对数平均薪资
+```{r}
+Mydata$对数平均薪资 = log(Mydata$平均薪资)
+summary(Mydata$对数平均薪资)
+```
+对数平均薪资的平均数是8.960，中位数是8.854，数据分布基本无偏，最小值是7.313，最大值是12.899，四分卫数分别为8.566和9.393。
+
+然后分别找出平均薪资最低和最高的岗位：
+```{r}
+highest = Mydata[which(Mydata$对数平均薪资 == max(Mydata$对数平均薪资,na.rm=TRUE)),]
+lowest = Mydata[which(Mydata$对数平均薪资 == min(Mydata$对数平均薪资,na.rm=TRUE)),]
+c(highest$公司名称,highest$职位)
+c(lowest$公司名称,lowest$职位)
+```
+
+最小值出现在用友优普信息技术有限公司的“商务、行政实习生”职位上。最大值出现在汇鼎财富（北京）投资有限公司的“金融衍生品数据分析/交易员”职位上。
+
+
+## 第五题：分析学历与薪资关系
+从第4题可知，工资的分布存在比较严重的右偏，因此在本题中，均对工资取对数进行讨论。分别做出对数平均薪资、对数最高薪资、对数最低薪资的箱线图如下：
+```{r}
+boxplot(log(平均薪资)~学历,data=Mydata,col=c('gold','grey'),ylab='对数平均薪资',cex.lab=1,cex.axis=1,las=2)
+boxplot(log(最高薪资)~学历,data=Mydata,col=c('gold','grey'),ylab='对数最高薪资',cex.lab=1,cex.axis=1,las=2)
+boxplot(log(最低薪资)~学历,data=Mydata,col=c('gold','grey'),ylab='对数最低薪资',cex.lab=1,cex.axis=1,las=2)
+```
+可以看出，薪资的高低和学历的高低整体上呈现正相关的关系，即学历越高，薪资越高。博士生的平均薪资、最高薪资和最低薪资的中位数都是最高的；相反的，中专生和高中生的薪资最低。但仅仅从箱线图上看，还不能说明学历对薪资有统计意义上的显著影响。
+
+此外，可以发现大专和本科的薪资有较多的离群值，可能这部分的薪资统计有误。硕士生和博士生的箱宽较大，说明硕士和博士毕业生的薪资分布的离散趋势比较大，可能是因为硕士和博士所从事的职位比较多元化。
+
+## 第六题：分析软件掌握能力与薪资关系
+使用R语言中的grepl函数可以检索岗位描述中是否出现了所需要的软件。下面分别展示了是否要求12种软件对薪资的影响的箱线图：
+```{r}
+opar <- par(mfrow=c(3,4),mar=c(2,4,2,1))
+software = c('R','SPSS','Excel','Python','MATLAB','Java',
+             'SQL','SAS','Stata','EViews','Spark','Hadoop')
+for(i in 1:12){
+  item = software[i]
+  Mydata$new = grepl(item,Mydata$描述,ignore.case = TRUE)
+  boxplot(log(平均薪资)~new,data=Mydata,col=c('grey','gold'),
+          ylab='对数平均薪资',xlab='',
+          main=paste('是否会使用',item),cex.lab=0.7,cex.axis=0.7)
+  colnames(Mydata)[colnames(Mydata)=='new'] = item
+}
+```
+
+从箱线图可以看出，是否要求Excel对于薪资基本没有影响，这可能是因为掌握Excel属于最基本的职业能力。类似的，是否掌握Stata对薪资的影响也比较小，这可能是因为Stata属于较容易入门的软件，入职后学习成本并不高。而像是否掌握Java，Spark，Hadoop等软件，则对薪资影响较高，掌握这些软件的求职者更可能获得较高的薪资，这可能与这些软件入门成本较高有关。
+
+
+## 第七题：通过线性回归寻找影响薪资的变量
+用R语言进行线性回归的R代码如下：
+```{r}
+Mydata2 = Mydata[!is.na(Mydata$平均薪资),] # 去除无效数据
+mod = lm(log(平均薪资)~地区+公司类别+公司规模+学历+经验+R+SPSS+
+        Excel+Python+MATLAB+Java+SQL+SAS+Stata+EViews+Spark+Hadoop,
+        data=Mydata2)
+# summary(mod)
+library(broom) # 将回归结果保存为csv以供后续整理
+res_mod <- as.data.frame(tidy(mod))
+res_mod2 <- as.data.frame(glance(mod))
+write.csv(res_mod, "res_mod.csv")
+write.csv(res_mod2, "res_mod2.csv")
+```
+将回归结果整理为如下表格：
+
+| 变量                  	| 系数       	| p.value   	| 备注                	|
+|-----------------------	|------------	|-----------	|---------------------	|
+| (Intercept)           	| 8.929      	| <0.001    	| 　                  	|
+| 地区-河北             	| -0.410     	| <0.001    	| 基准组：北京        	|
+| 地区-山西             	| -0.329     	| <0.001    	|                     	|
+| 地区-陕西             	| -0.354     	| <0.001    	|                     	|
+| 地区-上海             	| 0.016      	| 0.312     	|                     	|
+| 地区-深圳             	| 0.016      	| 0.370     	|                     	|
+| 公司类别-非营利机构   	| -0.173     	| 0.125     	| 基准组：创业公司    	|
+| 公司类别-国企         	| -0.125     	| 0.020     	|                     	|
+| 公司类别-合资         	| -0.035     	| 0.477     	|                     	|
+| 公司类别-民营公司     	| -0.087     	| 0.062     	|                     	|
+| 公司类别-上市公司     	| -0.019     	| 0.713     	|                     	|
+| 公司类别-事业单位     	| -0.240     	| 0.050     	|                     	|
+| 公司类别-外资         	| -0.083     	| 0.092     	|                     	|
+| 公司规模-10000人以上  	| 0.000      	| 0.988     	| 基准组：1000-5000人 	|
+| 公司规模-5000-10000人 	| 0.007      	| 0.862     	|                     	|
+| 公司规模-500-1000人   	| -0.012     	| 0.585     	|                     	|
+| 公司规模-150-500人    	| 0.018      	| 0.333     	|                     	|
+| 公司规模-50-150人     	| -0.021     	| 0.266     	|                     	|
+| 公司规模-少于50人     	| -0.043     	| 0.046     	|                     	|
+| 学历-中专             	| -0.228     	| <0.001    	| 基准组：学历无要求  	|
+| 学历-高中             	| -0.252     	| <0.001    	|                     	|
+| 学历-大专             	| -0.152     	| <0.001    	|                     	|
+| 学历-本科             	| 0.105      	| <0.001    	|                     	|
+| 学历-硕士             	| 0.265      	| <0.001    	|                     	|
+| 学历-博士             	| 0.949      	| <0.001    	|                     	|
+| 经验                  	| 0.098      	| <0.001    	| 　                  	|
+| R                     	| 0.062      	| <0.001    	| 　                  	|
+| SPSS                  	| 0.025      	| 0.350     	|                     	|
+| Excel                 	| -0.165     	| <0.001    	|                     	|
+| Python                	| 0.073      	| 0.009     	|                     	|
+| MATLAB                	| -0.047     	| 0.238     	|                     	|
+| Java                  	| 0.028      	| 0.375     	|                     	|
+| SQL                   	| 0.163      	| <0.001    	|                     	|
+| SAS                   	| 0.081      	| 0.005     	|                     	|
+| Stata                 	| -0.085     	| 0.426     	|                     	|
+| EViews                	| 0.006      	| 0.952     	|                     	|
+| Spark                 	| -0.053     	| 0.318     	|                     	|
+| Hadoop                	| 0.214      	| <0.001    	|                     	|
+| F检验                 	| p值<0.0001 	| 调整的R^2 	| 0.3647              	|
+
+
+对回归结果的解读如下。控制其他因素不变时：
+
+- 地区：河北的薪资最低，深圳和上海的薪资最高；河北的薪资平均比北京低41%，深圳和上海的薪资平均比北京高1.6%
+
+- 公司类别：事业单位的薪资最低，创业公司的薪资最高，创业公司的薪资平均比事业单位高24%
+
+- 公司规模：少于50人的公司的薪资最低，150-500人规模的公司薪资最高，少于50人的公司的薪资平均比1000-5000人规模的公司薪资低4.3%，150-500人规模的公司薪资平均比1000-5000人规模的公司薪资高1.8%。
+
+- 学历：高中生的薪资最低，博士生的薪资最高。高中生的薪资比无学历要求的薪资怕平均低25.2%，博士生的薪资比无学历要求的薪资平均高94.9%。
+
+- 经验：经验每增加一年，薪资平均增加9.8%。
+
+- 软件掌握情况：掌握Excel和Matlab的薪资比无任何软件要求的薪资低，根据常识，这属于异常现象，可能是因为无任何软件要求的数据分析师的招聘信息太少，数据量不足，导致回归结果异常。掌握Hadoop的薪资最高，比无任何软件要求的薪资平均高21.4%。
+
+此外，注意到调整后的R^2只有0.3647，
+说明该对数线性模型的对薪资变化的解释能力一般。 
+
+线性模型的回归诊断示意图如下：
+```{r}
+par(mfrow=c(2,2)) 
+plot(mod,which=c(1:4))
+```
+
+可以发现，残差图基本不存在非线性问题，说明对平均薪资取对数后去除了非线性问题。但是，残差图上仍然可以看出存在异方差的问题，说明对数线性回归模型仍有改善空间。在QQ图上，残差基本服从正态分布，但在右侧尾部向上偏离直线，可能说明数据中还有一些信息可供进一步挖掘。此外，在Cook’s distance中，没有超过1的点，说明在该模型下，没有离群的数据点。
+
+## 第八题：对模型进行交叉验证
+完成本题的R代码如下：
+```{r eval=F}
+library(DAAG)
+rmses = rep(0,50)
+for(i in 1:50){
+  cat(i,'\r')
+  CV = cv.lm(data=Mydata2,form.lm=mod,m=5,
+          plotit = F,prinit=F,seed=23*i) # 设定每次划分样本的随机数种子
+  rmses[i] = attr(CV,'ms')
+}
+# 对250个预测误差求平均
+mean(rmses)
+# 0.18969
+```
+
+在设定的随机数下，平均的预测误差为0.18969。
+
+
+# 使用Newton-Raphson求解逻辑回归问题
+使用Newton-Raphson求解的R代码如下，但是发现**求解出的$\beta$会发散**。
+```{r}
+# Generate data
+set.seed(123)
+Ns <- c(200, 500, 800, 1000)
+R <- 200
+beta_true <- as.matrix(c(0.5, 1.2, -1))
+# X <- lapply(N, function(n) cbind(rep(1,n), mvrnorm(n=n,mu=rep(0,2),Sigma=diag(2))))
+# Y <- lapply(X, function(x) rbinom(nrow(x), size=1, prob=plogis(X %*% beta_true)))
+
+# Define the log-likelihood function
+loglik <- function(beta,X,Y) {
+  eta <- X %*% beta
+  p <- plogis(eta)
+  sum(Y*log(p+1e-13) + (1-Y)*log(1-p+1e-13)) # 防止取对数时出现inf
+}
+
+# Define the score function, which is also the gradient
+score <- function(beta,X,Y) {
+  eta <- X %*% beta
+  p <- plogis(eta)
+  t(X) %*% (Y - p)
+}
+
+# Define the Hessian matrix
+hessian <- function(beta,X,Y) {
+  eta <- X %*% beta
+  p <- plogis(eta)
+  W <- diag(as.numeric(p*(1-p)))
+  t(X) %*% W %*% X
+}
+
+# Implement the Newton-Raphson algorithm
+library(MASS)
+opar <- par(mfrow=c(2,2))
+for(i in 1:length(Ns)){
+  N = Ns[i]
+  beta_hat_collection = matrix(rep(0,3*R),nrow=3)
+  beta_hat = as.matrix(rep(0,3)) # initial point
+  for (r in seq_len(R)) {
+    x = cbind(rep(1,N),rnorm(N),rnorm(N))
+    prob = plogis(x%*% beta_true)
+    y = as.numeric(prob>0.5) # true value of y
+    loglik_old <- -Inf
+    iter = 0
+    while (TRUE) {
+      score_new <- score(beta_hat,x,y)
+      hessian_new <- hessian(beta_hat,x,y)
+      beta_new <- beta_hat + ginv(hessian_new) %*% score_new # pseudo inverse
+      
+      # loglik_new <- loglik(beta_new,x,y)
+      # print(loglik_new)
+      
+      if ( max(abs(beta_new-beta_hat)) <1e-5 || iter>100 ) break
+    
+      beta_hat <- beta_new
+      iter = iter + 1
+      # loglik_old <- loglik_new
+    }
+    
+    beta_hat_collection[1:3,r] = beta_hat
+  }
+  boxplot(t(beta_hat_collection),main=paste('N=',N),y='估计误差')
+  }
+
+
+
+```
+
+
+我尝试使用Armijo rule进行**阻尼牛顿法**，
+R代码如下，但是**所求出的结果仍然不太正常**，**和真实的beta值相差甚远**，不知道是什么原因。因此只展示N=200时出现的异常结果。
+
+```{r}
+lgst = function(y,X,beta){
+    -(t(y)%*%X%*%beta - sum(log(1+exp(X%*%beta))) ) 
+  # 返回对数似然函数的相反数，使原问题变成一个求最小值的凸问题
+}
+
+
+# Ns = c(200,500,800,1000)
+Ns = c(200)
+R = 200
+beta_true = c(0.5, 1.2, -1) # 真实的beta值
+beta_true = as.matrix(beta_true)
+set.seed(555)
+for (i in 1:length(Ns)){
+  N = Ns[i]
+  res_collection = matrix(rep(0,3*200),nrow=3) #用于收集每一轮得到的beta估计值的残差
+  for (r in 1:R) {  # 进行R轮估计
+    # print(r)
+    X1 = as.matrix(rnorm(N));
+    X2 = as.matrix(rnorm(N));
+    ones = as.matrix(rep(1,N))
+    X = cbind(ones,X1,X2)
+    y = exp(X %*% beta_true)/(1+exp(X%*%beta_true))
+    y[which(y>0.5),] = 1
+    y[which(y<=0.5),] = 0 # 真实的y值
+    beta = c(0,0,0) 
+    beta = as.matrix(beta)# 初始的beta值
+    iter = 0
+    while (iter <= 100){ # 使用Armijo准则进行阻尼Newton-Raphson迭代
+      t = exp(X%*%beta)
+      p = t/(1+t)
+      W = diag(as.numeric(p*(1-p)))
+      H = t(X) %*% W %*% X # 海森矩阵
+      g = -t(X)%*%(y-p) # 梯度
+      d = -solve(H)%*%g # 下降方向
+      delta = 0.1
+      alpha = 0.1 # 起始步长
+      sigma = 0.1
+      f_ori = lgst(y,X,beta)
+      # print(f_ori)
+      dec = t(g)%*%d
+      beta_temp = beta + alpha*d
+      iter2 = 0
+      while( lgst(y,X,beta_temp)
+             >  f_ori + delta*alpha*dec && iter2<10){ # 加阻尼，选取合适步长
+        alpha = alpha*sigma
+        beta_temp = beta + alpha*d
+        iter2 = iter2 + 1
+      }
+      beta_new = beta + alpha*d
+      if ( norm(beta_new-beta,'M') < 1e-5  ) { 
+        # 用无穷范数刻画新旧beta的差异
+        break}
+      beta = beta_new
+      iter = iter + 1
+    }
+    res_collection[,r] = beta_new - beta_true
+  }
+  
+  boxplot(t(res_collection),main=paste('N=',N),ylab='估计误差')
+}
+
+```

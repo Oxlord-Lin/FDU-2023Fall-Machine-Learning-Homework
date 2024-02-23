@@ -1,0 +1,12 @@
+ggplot2
+rpart
+rpart.plot
+randomForest
+lattice
+caret
+foreach
+iterators
+doParallel
+adabag
+pROC
+readr

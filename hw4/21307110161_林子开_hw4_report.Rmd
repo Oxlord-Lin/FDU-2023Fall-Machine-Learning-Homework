@@ -1,0 +1,569 @@
+---
+title: "统计（机器）学习 Homework-4 报告：      留学申请案例分析"
+author: "林子开 21307110161"
+date: "2023年10月27日"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+      number_sections: true
+---
+
+```{=html}
+<style type="text/css">
+h1.title{
+  font-size: 38px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.author{
+  font-size: 18px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.date {
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  text-align: center;
+}
+
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, cache = TRUE, message = TRUE, fig.align = "center")
+```
+
+```{r,warning=FALSE,include=FALSE}
+# 导入所有需要的包
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(magrittr)
+library(cowplot)
+library(pROC)
+library(caret)
+library(tidyr)
+
+```
+
+# 1.数据清洗
+
+## 1.1 导入并保留录取和拒绝两类数据
+
+导入数据
+
+```{r}
+# 导入数据
+data = read.csv("D:/大三上学习资料/统计（机器）学习/hw4/files/Data_Cleaning.csv", 
+                 header = T, stringsAsFactors = F) 
+# 排序，便于查看
+data = data[order(data$index_origin),]  
+```
+
+仅保留录取与拒绝两种结果所对应的数据记录，并将AD和offer归为一类
+
+```{r}
+data = data[which(data$offertype!='WaitingList'),]
+data[which(data$offertype %in% c('AD无奖', 'AD小奖','Offer')),]$offertype = '录取'
+data[which(data$offertype %in% c('Rej')),]$offertype = '拒绝'
+
+```
+
+## 1.2 对申请学校名称进行修正
+
+```{r}
+# 对申请学校进行简单修正
+data[which(data$college_apply %in% c('Texas A', 'M University')),]$college_apply = 'Texas A&M University'
+data[which(data$college_apply %in% c('Washington University in St', 'Louis')),]$college_apply = 'Washington University in St. Louis'
+
+```
+
+## 1.3 将学校缩写替换为全称
+
+导入缩写
+
+```{r}
+abb = read.table("D:/大三上学习资料/统计（机器）学习/hw4/files/美国大学缩写汇总.txt", 
+                 quote="\"", comment.char="")
+colnames(abb) = c('fullName','abbName')
+```
+
+将学校缩写替换为全称，不考虑缩写字母的大小写差异
+
+```{r}
+data$college_apply = toupper(data$college_apply) # 全部变成大写字母
+abb$abbName = toupper(abb$abbName)
+for(i in 1:dim(data)[1]){
+  if(data$college_apply[i]%in%abb$abbName) # 先确认是一个缩写才进行转换
+  data$college_apply[i] = abb$fullName[which(abb$abbName==data$college_apply[i])]
+}
+# 新建一列
+data$College_apply_new = factor(data$college_apply)
+
+```
+
+## 1.4 根据大学排名是否为美国前50名校新建变量CollegeRankTop50
+
+导入QS前百名的美国大学名单
+
+```{r}
+top = read.delim("D:/大三上学习资料/统计（机器）学习/hw4/files/QS大学排名前百（美国）.txt",header=F)
+```
+
+将所有申请学校划分为"Top50"和"Others"两类
+
+```{r}
+# 数据集前19所学校是世界前五十名的美国名校
+data$CollegeRankTop50 = data$College_apply_new %in% top$V1[1:19]
+data[which(data$CollegeRankTop50==T),]$CollegeRankTop50 = 'Top50'
+data[which(data$CollegeRankTop50==F),]$CollegeRankTop50 = 'Others'
+data$CollegeRankTop50 = factor(data$CollegeRankTop50,levels = c('Top50','Others'))
+
+```
+
+## 1.5 成绩离散化处理
+
+首先把gpa_measure填写错误的数据删掉
+
+```{r}
+data = data[which(data$gpa_measure %in% c(4,4.3,100)),]
+```
+
+对绩点进行离散化处理，共有 '\<=3.4', '3.4-3.55', '3.55-3.7', '\>3.7'四类
+
+```{r}
+data$gpa_dis = NA # 新建一列
+for(i in 1:dim(data)[1]){
+  GPA = 4*data$gpa[i]/data$gpa_measure[i]
+  if(is.na(GPA)) {
+    data$gpa_dis[i] = NA}
+  else if(GPA <= 3.4){
+    data$gpa_dis[i]='<=3.4'}
+  else if(GPA>3.4 && GPA<=3.55){
+    data$gpa_dis[i] = '3.4-3.55'}
+  else if(GPA>3.55 && GPA<=3.7){
+    data$gpa_dis[i] = '3.55-3.7'}
+  else{
+    data$gpa_dis[i] = '>3.7'}
+}
+data$gpa_dis = factor(data$gpa_dis,levels=c('<=3.4', '3.4-3.55', '3.55-3.7', '>3.7'))
+```
+
+对托福成绩进行离散化处理，共有 '\<=98', '98-102', '102-106', '\>106'四类
+
+```{r}
+
+data$toefl = as.numeric(data$toefl)
+data$toefl_dis = NA
+for(i in 1:length(data$toefl_dis)){
+  TOF = data$toefl[i]
+  if(is.na(TOF))
+    {data$toefl_dis[i]=NA}
+  else if(TOF<=98)
+    {data$toefl_dis[i]='<=98'}
+  else if(TOF>98 && TOF<=102)
+    {data$toefl_dis[i]='98-102'}
+  else if(TOF>102 && TOF<=106)
+    {data$toefl_dis[i]='102-106'}
+  else 
+    {data$toefl_dis[i]='>106'}
+}
+data$toefl_dis = factor(data$toefl_dis,levels = c('<=98', '98-102', '102-106', '>106'))
+
+```
+
+## 1.6 删除含有缺失值的数据
+
+```{r}
+data = na.omit(data)
+```
+
+# 2. 描述性分析
+
+## 2.1 Top 10热门学校申请人数柱状图
+
+找出前10名的热门学校
+
+```{r}
+library(ggplot2)
+t = table(data$College_apply_new)
+t = t[order(t,decreasing = T)]
+t = as.data.frame(t[1:10])
+colnames(t) = c('college_apply','count')
+```
+
+绘制柱状图
+
+```{r}
+perf = ggplot(data=t, aes(x=college_apply, y=count))+
+  geom_bar(stat="identity",fill="royalblue")+ylab('人数')+xlab('大学')+theme_bw()+
+  theme(axis.text.x = element_text(angle=60, hjust=1,size=9),
+        plot.title = element_text(color="black", size=15, face="bold",hjust=0.5),
+        axis.title.x = element_text(color="black", size=12, face="bold"),
+        axis.title.y = element_text(color="black", size=12, face="bold"))+
+  geom_text(aes(label = count), vjust = 0,size=3.2)+ggtitle('Top 10 热门学校申请人数')
+perf
+
+```
+
+## 2.2 托福成绩与录取结果箱线图
+
+```{r}
+box <- ggplot(data, aes(x = CollegeRankTop50, y = toefl, fill = offertype)) +
+    geom_boxplot(show.legend = T, varwidth = T) +theme_light() +
+    scale_fill_manual("申请结果", values = c("pink", "royalblue")) +    # 按照申请结果填色
+  theme(axis.text.x = element_text(angle=0, hjust=1,size=9),
+        plot.title = element_text(color="black", size=15, face="bold",hjust=0.5),
+        axis.title.x = element_text(color="black", size=12, face="bold"),
+        axis.title.y = element_text(color="black", size=12, face="bold"))+
+    scale_y_continuous(limits = c(70, 120),breaks = seq(70, 120, by = 5))+ 
+    labs(x = "申请学校的世界排名", y = "托福成绩", title = "托福成绩与申请结果")
+box
+
+```
+
+箱线图解读：首先，申请Top50大学的同学，无论是否被录取，其托福成绩的中位数都比申请其他大学的同学的托福成绩高，这可能说明了高托福成绩的申请者更有可能获得Top50大学的青睐，且具有高托福成绩的申请者也更愿意申请更好的大学。
+
+其次，被录取的学生的托福成绩的中位数与被拒绝的学生的托福成绩中位数的差异并不明显，这可能说明了高托福成绩并不是被录取的唯一因素，甚至不是必须的因素
+
+## 2.3 可交互的录取结果饼图
+
+下面，利用饼图查看在本数据中录取结果的分布情况
+
+```{r}
+# 申请结果分布饼图
+library(plotly)
+t2 = table(data$offertype)
+t2 = as.data.frame(t2)
+colnames(t2) = c('offertype','count')
+plot_ly(t2,values= ~count,labels= ~offertype,type='pie',title='申请结果分布')
+
+```
+
+可以看到，在本数据中，大约七成的学生被大学录取。但需要注意的是，这可能**不是真实的录取情况**，因为其中存在抽样偏倚，那些被拒绝的学生可能更不愿意分享自己被拒绝的经历，而那些成功被录取的学生可能更愿意分享自己被录取的经历。
+
+## 2.4 申请人数和通过率变化的关系
+
+下面，通过折线图，探究申请人数和申请通过率之间的关系。为了突出录取率的变化情况，我们对录取率进行了logit变换，也即计算其优势比（ODD）。此外，由于2013年之前的数据过少，统计噪声可能很大，因此将2013年之前的数据排除。
+
+```{r}
+offer_rate = data%>%group_by(time)%>%summarise(rate=mean(offertype=='录取'))
+# 删去数据量太少的年份
+offer_rate = offer_rate[4:8,] 
+offer_rate$rate = (offer_rate$rate/(1-offer_rate$rate))  # 转化为优势比
+offer_rate$time = offer_rate$time + 2*1e3
+p = ggplot(offer_rate,mapping=aes(x=time,y=rate))
+of = p + geom_line(col='pink2',linewidth=1)+geom_point(size=2,col='red',alpha=0.6)+theme_light()+
+  theme(axis.text.x = element_text(angle=0, hjust=1,size=9),
+                     plot.title = element_text(color="black", size=15, face="bold",hjust=0.5),
+                     axis.title.x = element_text(color="black", size=12, face="bold"),
+                     axis.title.y = element_text(color="black", size=12))+ 
+  labs(x = "年份", y = "录取通过率的优势比ODD", title = "录取率优势比ODD随年份的变化")
+
+# 申请人数随年份变化情况
+population = data%>%group_by(time)%>%summarise(count=n())
+population = population[4:8,]
+population$time = population$time + 2*1e3
+p2 = ggplot(population,mapping=aes(x=time,y=count))
+po = p2 + geom_line(col='lightblue',linewidth=1)+geom_point(size=2,alpha=0.6,col='blue')+theme_light()+
+  theme(axis.text.x = element_text(angle=0, hjust=1,size=9),
+        plot.title = element_text(color="black", size=15, face="bold",hjust=0.5),
+        axis.title.x = element_text(color="black", size=12, face="bold"),
+        axis.title.y = element_text(color="black", size=12))+ 
+  labs(x = "年份", y = '申请人数', title = "申请人数随年份的变化")
+
+library("cowplot")
+plot_grid(of, po, ncol = 1, nrow = 2)
+```
+
+可以看到，在2014年和2015年申请人数变多，此时录取率也随之降低；从2016年开始，申请人数减少，此时录取率也随之升高。这符合我们的预期，即申请人数越多，竞争越激烈，则录取率也会越低。
+
+# 3. 建立逻辑回归模型并进行解读
+
+首先将各个变量转为因子型数据，并且对有多个水平的变量设置等级，以便于后续的回归解读
+
+```{r,warning=FALSE}
+# 包含以下自变量
+# 申请季节、申请类型、申请学校是否为Top50
+# 拓展信息中的所有变量、GPA成绩区间、托福成绩区间
+data$offertype = factor(data$offertype)
+data$season = factor(data$season)
+data$type = factor(data$type,levels=c('MS','PhD','混合'))
+data$rl = factor(data$rl)
+data$intern = factor(data$intern)
+data$research = factor(data$research)
+data$paper = factor(data$paper)
+data$exchange = factor(data$exchange)
+```
+
+first和sci两列数据存在问题，需要修正
+
+```{r}
+data$first = factor(data$first)
+data[which(data$first==-1),]$first = NA # 有的first填了-1，删去这些数据
+data$sci = factor(data$sci)
+data[which(data$sci==-1),]$sci = NA # 有的sci填了-1，删去这些数据
+data = na.omit(data)
+data$first = factor(data$first)
+data$sci = factor(data$sci)
+```
+
+抽取训练集和测试集，建立逻辑回归模型，用AIC准则筛选变量，查看并解释回归结果
+
+```{r}
+set.seed(2023)    # 随机数种子
+nsample = sample(x = dim(data)[1], size = dim(data)[1]/5, replace = F)
+## 重新划分训练集和测试集
+train_data = data[-nsample, ]  
+test_data = data[nsample, ]
+# 建立逻辑回归模型
+formula = "offertype ~ season + type +CollegeRankTop50+
+rl + intern + research + paper + first + sci + exchange + gpa_dis + toefl_dis"
+
+logisticModel = glm(formula, 
+                    family = binomial(link='logit'), data = train_data)  # 逻辑回归
+stepModel = step(logisticModel, trace = F)     # AIC准则逐步回归
+summary(stepModel)    # 查看回归结果
+```
+
+解读：经过AIC准则筛选出对申请结果有显著影响的变量后，**在控制其他条件不变的情况下**：
+
+-   与基准组秋季申请相比，春季申请的录取可能性更高；
+
+-   与基准组只申请硕士相比，申请博士的录取可能性低，申请混合的录取可能性高；
+
+-   与基准组申请前50名美国高校相比，申请其他高校的录取可能性更高；
+
+-   与基准组做过科研的申请者相比，没有做过科研的申请者录取可能性更高，但这与常识违背，可能是样本有偏倚，或者样本量太小所导致的；
+
+-   与基准组没有发表论文相比，发表过论文的录取可能性更高；
+
+-   与基准组没有交流经历相比，有交流经历的录取可能性更高；
+
+-   与基准组gpa\<3.4相比，gpa在3.4-3.55区间的录取可能性更低，而在3.55-3.7和\>3.7两个区间的gpa的录取可能性更高，这也反映出了较高的gpa并不是决定是否被录取的唯一因素；
+
+-   与基准组托福成绩\<98相比，托福成绩处于98-102和102-106区间的申请者的录取可能性反而会更低，而处于\>106的申请者的录取可能性可能更高，这也同样说明了较高的托福成绩并不是决定是否被录取的唯一因素，但也可能是因为样本存在偏倚而造成的。
+
+# 4. 模型评价：ROC曲线
+
+对第三问得到的筛选后的模型对测试集的申请结果进行预测，并利用R包pROC绘制出ROC曲线图
+
+```{r}
+# 进行预测
+pred = predict(stepModel, test_data, type="response")
+# 绘制ROC曲线
+library(pROC)
+# 绘制ROC曲线
+plot.roc(test_data$offertype, pred, 
+         col = "royalblue2", print.auc=TRUE,
+         auc.polygon=TRUE, auc.polygon.col="aliceblue", 
+         xlab = "FPR",ylab = "TPR", main = "预测ROC曲线",cex.lab=1.2)  
+
+```
+
+根据曲线的结果，**AUC值为$0.590>0.5$，说明该逻辑回归模型预测效果较好**。
+
+# 5. 模型评价：精准率、召回率与混淆矩阵
+
+给定预测概率的阈值为0.6，在**测试集**上，计算对应的精准率（precision）和召回率（recall）
+
+```{r}
+library(caret)
+# 在测试集上进行预测
+pred = predict(stepModel,test_data,type='response') 
+confsTable = confusionMatrix(as.factor(pred>0.6),as.factor(test_data$offertype=='录取'))$table
+precision = confsTable[2,2]/(confsTable[2,1]+confsTable[2,2])
+recall = confsTable[2,2]/(confsTable[1,2]+confsTable[2,2])
+# 精准率和召回率
+P_R = cbind(precision,recall)
+colnames(P_R) = c('精准率','召回率')
+print(P_R)
+```
+
+逻辑回归模型在测试集上的精准率为72.99%，召回率为90.65%。模型的召回率很高，说明在真正被录取的样本之中，被预测为录取的占比较高；但精准率较低，也就是在预测为录取的样本中，真正被录取的样本占比大约只有七成，这可能说明设置的阈值0.6偏低。
+
+
+计算和展示混淆矩阵如下
+
+```{r}
+# 混淆矩阵
+print(confsTable)
+```
+
+从混淆矩阵中可以得到，在真实值为录取的样本中，有1532个样本被预测为录取，但有158个被错误地预测为拒绝；
+在真实值为拒绝的样本中，有118个被预测为拒绝，但有567个被错误地预测为录取。
+
+总体上看，模型在真实值为录取的样本中预测效果较好，这与该模型召回率较高是一致的。
+
+
+
+# 6. 模型评价：成本-收益曲线
+仍然在测试集上绘制成本-收益曲线，其中“成本”用覆盖率衡量，“收益”用捕获率（即召回率）衡量。绘制曲线如下：
+
+```{r,warning=FALSE}
+
+alphas = seq(0.1,0.9,by=0.01)
+cost = numeric(length(alphas))
+recall = cost
+for(i in 1:length(alphas)){
+  alpha = alphas[i]
+  confsTable = confusionMatrix(as.factor(pred>alpha),
+                               as.factor(test_data$offertype=='录取'))$table
+  # print(confsTable)
+  recall[i] = confsTable[2,2]/(confsTable[1,2]+confsTable[2,2])
+  cost[i] = (confsTable[2,1]+confsTable[2,2])/sum(confsTable)
+}
+
+library(tidyr)
+base_recall = cost
+temp = as.data.frame(cbind(cost,recall,base_recall))
+temp = gather(temp,捕获率类型,recall,recall,base_recall)
+temp[which(temp$捕获率类型=='recall'),]$捕获率类型 ='模型捕获率'
+temp[which(temp$捕获率类型=='base_recall'),]$捕获率类型 ='基准捕获率'
+
+library(ggplot2)
+
+ggplot(temp,aes(cost,recall,group=捕获率类型,color=捕获率类型,shape=捕获率类型))+
+  geom_point(size=2.5,alpha=0.5)+ theme_grey()+
+  geom_line(linewidth=0.7)+ labs(x='成本（覆盖率）',y='收益（捕获率）')
+
+```
+
+在测试集上，当覆盖预测录取概率值最高的前75%的样本时，可以大致正确预测78%左右的样本。
+
+但是，也可以发现，该模型的成本-收益曲线基本和基准模型的曲线基本贴合，**几乎不存在较低覆盖率情况下获得较高捕获率的点**，说明该模型的精度不是很高。
+
+
+# 7. 构建自变量以提升模型预测效果
+
+## 7.1 构造新变量：基于描述性分析
+
+### 7.1.1 最热门的10个被申请专业
+
+首先，绘制出可交互的最热门的10个被申请专业的分布饼图。
+
+```{r}
+# 最热门的10个被申请专业，提供可交互页面
+library(plotly)
+t3 = table(data$major_apply)
+t3 = t3[order(t3,decreasing=T)]
+t3 = as.data.frame(t3[1:10])
+colnames(t3) = c('被申请专业','申请人数')
+plot_ly(t3,values= ~申请人数,labels= ~被申请专业,type='pie',title='前10名最热门被申请专业')
+```
+
+
+可以看到，CS和EE两个专业大约占了前10个最热门被申请专业的64%，占了一半以上，因此，推测申请这些专业的同学将面临**更加激烈的竞争，相应的，录取率也会更低**。故新建一个变量CSorEE如下，并比较是否申请CS或EE的学生的录取率优势比（ODD）的情况。
+
+```{r}
+data$CSorEE = data$major_before == 'CS' |  data$major_before == 'EE'
+offer_rate2 = data%>%group_by(CSorEE)%>%summarise(rate=mean(offertype=='录取'))
+offer_rate2$rate = offer_rate2$rate/(1-offer_rate2$rate)
+p = ggplot(offer_rate2,mapping=aes(x=CSorEE,y=rate))
+of_CSorEE = p + geom_bar(stat='identity') +geom_col(colour='lightblue',fill='lightblue')+ theme_bw() + ylab('录取率优势比ODD') +
+  xlab('是否申请CS或EE')  + 
+  theme(axis.text.x = element_text(angle=0, hjust=1,size=9),
+        plot.title = element_text(color="black", size=15, face="bold",hjust=0.5))
+of_CSorEE
+
+```
+
+可以看到，申请CS或EE专业的学生，录取率确实低于申请其他专业的学生。
+
+
+### 7.1.2  转专业对录取情况的影响 
+
+类似的，比较是否转专业对录取率优势比（ODD）的影响情况
+
+```{r}
+# 看一下转专业的影响
+data$cross = as.logical(data$cross)
+offer_rate3 = data%>%group_by(cross)%>%summarise(rate=mean(offertype=='录取'))
+offer_rate3$rate = offer_rate3$rate/(1-offer_rate3$rate)
+p = ggplot(offer_rate3,mapping=aes(x=cross,y=rate))
+of_cross = p + geom_bar(stat='identity') +geom_col(colour='pink',fill='pink')+ theme_bw() + ylab('录取率优势比ODD') +
+  xlab('是否转专业')  + 
+  theme(axis.text.x = element_text(angle=0, hjust=1,size=9),
+        plot.title = element_text(color="black", size=15, face="bold",hjust=0.5))
+of_cross
+
+```
+
+类似的，转专业的学生的录取优势比ODD，低于没有转专业的学生。
+
+## 7.2 建立新模型
+
+将用于描述是否申请热门专业CS或EE的变量CSorEE，与描述是否转专业的变量cross加入逻辑回归模型，并利用AIC准则进行筛选，结果如下：
+
+```{r}
+# 在第三问经过逐步回归筛选后的模型基础上增加新变量，建立新模型
+## 抽取训练集
+set.seed(2023)    # 随机数种子
+nsample = sample(x = dim(data)[1], size = dim(data)[1]/5, replace = F)
+## 重新划分训练集和测试集
+train_data = data[-nsample, ]  
+test_data = data[nsample, ]
+# 建立新的逻辑回归模型
+formula2 = "offertype ~ season + type +CollegeRankTop50+
+  research + paper  + exchange + gpa_dis + toefl_dis + CSorEE + cross"
+
+logisticModel2 = glm(formula2, 
+                    family = binomial(link='logit'), data = train_data)  # 逻辑回归
+stepModel2 = step(logisticModel2, trace = F)     # AIC准则逐步回归
+summary(stepModel2)   # 查看新模型的回归结果
+
+```
+
+经过AIC筛选，留下了对申请结果影响显著的变量。与第3问相比，可以发现，**增加了一个CSorEE变量，但没有保留cross变量**。说明是否申请热门专业CS或EE对录取结果有显著影响，但是否转专业对录取结果的影响并不显著。
+
+此外，在**控制其他条件不变的情况下，与基准组申请其他专业相比，申请CS或EE专业的的录取率更低**，符合我们在描述性分析里的猜测。其他变量的影响情况与第3问一致，此处不再赘述。
+
+## 7.3 新模型预测效果评估
+
+### 7.3.1 ROC曲线
+
+绘制新模型在测试集（与第三问的测试集相同）上的ROC曲线图如下
+```{r}
+# 对测试集的申请结果进行预测，并利用R包pROC绘制出ROC曲线图
+# 进行预测
+pred2 = predict(stepModel2, test_data, type="response")
+# 绘制ROC曲线
+library(pROC)
+# 绘制ROC曲线（AUC变大了！）
+plot.roc(test_data$offertype, pred2, 
+         col = "royalblue2", print.auc=TRUE,
+         auc.polygon=TRUE, auc.polygon.col="aliceblue", 
+         xlab = "FPR",ylab = "TPR", main = "新模型的预测ROC曲线",cex.lab=1.2) 
+
+```
+
+新模型的AUC为$0.596>0.590$，高于第三问所得模型的的AUC，因此**新模型的预测效果更好**。
+
+
+### 7.3.2 精准率、召回率和混淆矩阵
+
+```{r}
+# 阈值0.6，计算新模型在测试集上的精准率（precision）和召回率（recall）
+# 并在测试集绘制混淆矩阵
+library(caret)
+# 在测试集上用新模型进行预测
+confsTable2 = confusionMatrix(as.factor(pred2>0.6),as.factor(test_data$offertype=='录取'))$table
+precision2 = confsTable2[2,2]/(confsTable2[2,1]+confsTable2[2,2])
+recall2 = confsTable2[2,2]/(confsTable2[1,2]+confsTable2[2,2])
+# 精准率（精准率上升）与召回率（召回率下降）
+P_R2 = cbind(precision2,recall2)
+colnames(P_R2) = c('精准率','召回率')
+print(P_R2)
+# 混淆矩阵
+print(confsTable2)
+
+```
+
+在新模型中，精准率为73.65%，召回率为90.17%，**精准率略有上升，而召回率略有下降**。
+
+从混淆矩阵中可以得到，在真实值为录取的样本中，有1524个样本被预测为录取，但有166个被错误地预测为拒绝；
+在真实值为拒绝的样本中，有140个被预测为拒绝，但有545个被错误地预测为录取。**因此，新模型在真实值为拒绝的样本上表现比原模型更好，但在真实值为录取的样本上表现比原模型略差**。

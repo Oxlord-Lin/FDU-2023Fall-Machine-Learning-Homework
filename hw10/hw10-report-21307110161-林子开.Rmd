@@ -1,0 +1,158 @@
+---
+title: "统计（机器）学习 Homework-10 报告"
+author: "林子开 21307110161"
+date: "2023年12月"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+      number_sections: true
+---
+
+```{=html}
+<style type="text/css">
+h1.title{
+  font-size: 38px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.author{
+  font-size: 18px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.date {
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  text-align: center;
+}
+
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, cache = TRUE, message = TRUE, fig.align = "center")
+```
+
+
+```{r,warning=FALSE,include=FALSE}
+# 导入所有需要的包，但不进行展示
+library(readr)
+library(corrplot)
+library(psych)
+library(factoextra)
+
+```
+
+# 一、读入数据
+```{r,message=FALSE}
+soccer <- read_csv("soccer.csv")
+```
+
+
+# 二、绘制相关系数图
+```{r}
+predictor <- soccer[4:16]
+M <- cor(predictor)
+par(family='STHeiti')
+corrplot::corrplot(M, tl.srt = 60,tl.col = "black")
+```
+从相关系数图可以看出，射门、射正、进球、头球、关键传球、带球摆脱、助攻、被侵犯之间具有较强的正相关性，其中，射门、射正、进球三个变量的正相关性十分显著。此外，解围、拦截、封堵、头球、铲断变量之间，也具有较强的正相关性。
+
+
+# 三、主成分分析
+首先，利用**碎石图**确定主成分的个数
+```{r,message=FALSE,warning=FALSE}
+par(family='STHeiti')
+result1 <- scree(predictor, factors = F, pc = T,  
+                 main = "主成分分析崖底碎石图")
+cumvar <- round(cumsum(result1$pcv)/sum(result1$pcv),2)
+cat('前三个主成分累计方差贡献率为：', cumvar[1:3]) # 确定主成分个数为3
+```
+根据崖底碎石图的拐点，结合主成分解释总体方差的比例，选择主成分个数为3（前三个主成分累计方差贡献率为81%）。
+
+以下是主成分分析的结果
+```{r}
+# 提取主成分
+pc <- principal(predictor, nfactors = 3)
+pc
+
+```
+下面利用主成分分量的值可以对各个主成分进行解释。**第一主成分**的偷球、关键传球、带球摆脱、助攻、被侵犯分量系数大于0.7，第一主成分可以反映球员在比赛中的配合能力，可以称为**配合因子**。**第二主成分**在解围、拦截、封堵、头球分量上的系数大于0.7，可以反映球员在比赛中的防守能力，可以称为**防守因子**。**第三主成分**在射门、射正、进球分量上的系数大于0.7，可以反映球员在比赛中的进攻的能力，可以称为**进攻因子**。
+
+
+# 四、计算球员主成分得分
+```{r}
+# 计算每一位球员的主成分得分
+pc <- principal(predictor, nfactors = 3, scores = TRUE)
+```
+
+下面挑选第1位，第16位，第20位球员进行解读。
+```{r}
+# 挑选三个球员
+player.1 <- pc$scores[1,]
+player.16 <- pc$scores[16,]
+player.20 <- pc$scores[20,]
+```
+
+```{r}
+player.1
+```
+第一个球员在进攻因子上得分较高，在防守因子上得分较低，说明这个球员的角色可能是前锋，擅长进攻；此外，这个球员在配合因子上得分因子比较低，可能说明这个球员不习惯和队友配合，喜欢单刀，需要增强团队意识.
+
+```{r}
+player.16
+```
+第16个球员，在防守因子上得分较高，在进攻因子上得分较低，说明这位球员的角色可能是后卫。类似的，这位球员在配合因子上得分很低，需要加强团队配合的训练。
+
+
+```{r}
+player.20
+```
+第20个球员，在配合因子上得分非常高，而在进攻因子上得分一般，在防守因子得分上很低。说明这位球员的角色很可能是中锋。这位球员具有非常好的团队配合能力，但也需要提升自己的防守能力，防止己方球队阵型的腰部位置出现空当，被对方突破。
+
+
+# 五、依据主成分进行K-means聚类
+首先，根据碎石图确定最佳聚类个数
+```{r}
+pc.scores <- as.data.frame(pc$scores)
+fviz_nbclust(pc.scores, kmeans, method = "wss") + geom_vline(xintercept = 4, linetype = 2)
+```
+从碎石图可以看出，最佳的聚类个数是4个。
+
+下面按照$k=4$进行k-means聚类，并展示类别人数和聚类中心：
+```{r}
+km <- kmeans(pc.scores, 4, nstart = 24)
+km$size
+km$centers
+```
+四个类别的人数分别为387，246，169，761人。
+
+**第一个类别**的中心的主成分得分为
+(1.2295968, 0.1627159, -0.54828241)，说明这个类别的球员比较善于配合。
+
+**第二个类别**的中心的主成分得分为(-0.5927134, 1.7289557, 0.03649759)，说明
+这个类被的球员比较善于防守。
+
+**第三个类别**的中心的主成分得分为
+(0.5044559, -0.2201536, 2.26533943)，说明这个类别的球员善于进攻。
+
+**第四个类别**的中心的主成分得分为(-0.5457287, -0.5927572, -0.23605188)，
+说明这个类别的球员的水平相对普通，没有突出能力。
+
+下面进行聚类可视化，按照每个球员在防守银子和得分因子（第二个和第三个主成分）
+上的得分绘制散点图
+```{r}
+# 聚类可视化
+fviz_cluster(km, data = pc.scores[,-1],
+             palette = c("blue", "green", "gold", "#FC4E07"),
+             ellipse.type = "euclid",
+             star.plot = TRUE, 
+             repel = TRUE,
+             ggtheme = theme_minimal()
+)
+```
+从聚类结果图可以看出：第一类擅长配合的球员分布较广，这可能说明擅长配合的球员，其进攻能力和防守能力的变化会比较大；第二类位于球员位于图中右偏下的位置，说明他们整体的防守能力确实比较强；第三类球员位于图中上偏左的位置，说明他们确实更擅长于进攻；第四类球员基本处于坐标轴的原点附近，说明他们的水平确实比较一般。

@@ -1,0 +1,289 @@
+---
+title: "统计（机器）学习 Homework-6 报告：力扣题目难度预测"
+author: "林子开 21307110161"
+date: "2023年11月12日"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+      number_sections: true
+---
+
+```{=html}
+<style type="text/css">
+h1.title{
+  font-size: 38px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.author{
+  font-size: 18px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.date {
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  text-align: center;
+}
+
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, cache = TRUE, message = TRUE, fig.align = "center")
+```
+
+
+```{r,warning=FALSE,include=FALSE}
+# 导入所有需要的包，但不进行展示
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(adabag)
+library(pROC)
+
+```
+
+# 一、导入数据与数据清洗
+读入数据，创建EASY变量，并对某些列进行重新命名（不然之后在随机森林部分会报错）。
+```{r,message=F}
+# 读入数据
+library(readr)
+data <- read_csv("D:/大三上学习资料/统计（机器）学习/hw6/lc_data.csv")
+data = as.data.frame(data)
+
+# 创建EASY变量
+data$EASY = 1*(data$difficulty=='EASY')
+
+# 对某些列重新命名，否则之后做随机森林会出问题
+newNames <- c( "linked_list","math","hash_table","string","binary_search",
+"divide_and_conquer", "dynamic_programming","greedy","two_pointers","sorting",                 
+"backtracking","heap_priority_queue", "simulation","depth_first_search",      
+"binary_tree","breadth_first_search","union_find","graph",                   
+"geometry","database","topological_sort","prefix_sum","shortest_path" )
+colnames(data)[21:43] <- newNames
+```
+# 二、对分类变量设置基准组
+将EASY, quesclass, example的基准组分别设置为0、题库、1
+```{r}
+data$EASY = factor(data$EASY)
+data$EASY = relevel(data$EASY,'0')
+data$quesClass = factor(data$quesClass)
+data$quesClass = relevel(data$quesClass,'题库')
+data$example = factor(data$example,levels = c(1,2,3,4,5,6))
+data$difficulty = factor(data$difficulty,levels=c('EASY','MEDIUM','HARD'))
+data$ifcom = factor(data$ifcom)
+```
+
+
+分类标签数量，我们只关心无或有，因此按照0/1重新赋值
+```{r}
+data$Algorithms = data$Algorithms>0
+data$Common.Data.Structures = data$Common.Data.Structures>0
+data$Advanced.Data.Structures = data$Advanced.Data.Structures>0
+data$Techniques = data$Techniques>0
+data$Math = data$Math>0
+data$Other = data$Other>0
+```
+
+
+<!-- 最后将所有分类变量统一变成因子型数据。 -->
+<!-- ```{r} -->
+<!-- cols = c(5:12,20:45,48) -->
+<!-- for(i in cols){ -->
+<!--   data[,i] = factor(data[,i]) -->
+<!-- } -->
+<!-- ``` -->
+
+<!-- 删除缺失数据 -->
+<!-- ```{r} -->
+<!-- data = na.omit(data) -->
+<!-- ``` -->
+
+
+# 三、描述性分析 
+
+## 三种不同题目难度占比分布直方图
+```{r}
+difficult.table = table(data$difficulty)/nrow(data)
+barplot(difficult.table,main='不同题目难度占比分布',xlab = '题目难度',ylab = '占比',col = 'khaki')
+```
+从直方图可以看出，中等难度的题目数量最多，大约占50%，其次是简单题，大约占30%，最后是困难题，大约占20%。
+
+## 不同题目难度的题目要求文本长度箱线图
+绘制不同题目难度的题目要求文本长度箱线图如下所示
+```{r}
+boxplot(requireLen~difficulty,data=data,col=c('aliceblue','seashell','pink'),xlab='题目难度',ylab='要求文本长度',cex.lab=1,cex.axis=1,las=1)
+```
+由于原始数据右偏，直接画箱线图效果不好，于是对文本长度**先取对数后画箱线图**，如下图所示
+```{r}
+boxplot(log(requireLen)~difficulty,data=data,col=c('aliceblue','seashell','pink'),xlab='题目难度',ylab='要求文本长度（取对数）',cex.lab=1,cex.axis=1,las=1)
+```
+可以看出，随着题目难度的增加，题目文本的长度也就越大，提干也就越复杂。
+
+## 不同题目难度的题目给出的示例数量占比柱状图
+```{r}
+subset.EASY = subset(data,difficulty=='EASY')
+subset.MEDIUM = subset(data,difficulty=='MEDIUM')
+subset.HARD = subset(data,difficulty=='HARD')
+difficult.example.table = rbind(table(subset.EASY$example)/nrow(subset.EASY),table(subset.MEDIUM$example)/nrow(subset.MEDIUM),table(subset.HARD$example)/nrow(subset.HARD))
+rownames(difficult.example.table) = c('EASY','MEDIUM','HARD')
+barplot(difficult.example.table, beside = T, col = c('aliceblue','seashell','pink'), main = "不同难度题目的示例数量占比", xlab = '示例数量',ylab='占比',ylim = c(0,0.5))
+legend("topright", legend = rownames(difficult.example.table), fill =  c('aliceblue','seashell','pink'), cex = 0.8)
+```
+可以看出，简单题给出的示例数量相对较少，而困难题给出的示例数量相对较多，而中等题介于二者之间。不过该趋势不是特别明显，大部分的题目给出的示例数量都在2~3个。
+
+## 不同公司的题目数量柱状图
+```{r}
+companies = c("huawei","bytedance","microsoft","google","amazon","tencent","otherCom")
+company.problem.table = numeric(7)
+for(i in 1:7){
+  company = companies[i]
+  company.problem.table[i] = sum(data[company])
+}
+barplot(company.problem.table,names.arg=companies,col='lightgreen',las=1,main='不同公司的题目数量',cex.names = 0.75)
+```
+可以看出，其他公司的题目数量最多。在此之外，亚马逊公司的题目数量最多，其次是谷歌、字节跳动、微软、华为，最后是腾讯。
+
+## 根据不同的分类标签，绘制简单题所占的比例直方图
+```{r,results='hide'}
+label = c("Algorithms","Common.Data.Structures","Advanced.Data.Structures","Techniques","Math","Other")
+label.easy.table = numeric(6)
+for(i in 1:6){
+  s = subset(data,data[label[i]]!=0)
+  print(label[i])
+  label.easy.table[i] = nrow(subset(s,EASY==1))/nrow(s)
+}
+label.easy.table = as.data.frame(label.easy.table)
+```
+```{r}
+perf = ggplot(data=label.easy.table,aes(x=label, y=label.easy.table))+
+  geom_bar(stat='identity',fill="lightgreen")+ylab('占比')+xlab('分类标签')+theme_light()+
+  theme(axis.text.x = element_text(angle=60, hjust=1,size=8),
+        plot.title = element_text(color="black", size=15, face="bold",hjust=0.5),
+        axis.title.x = element_text(color="black", size=12, face="bold"),
+        axis.title.y = element_text(color="black", size=12, face="bold"))+
+        ggtitle('不同分类标签的简单题占比')
+perf
+```
+由于我们只关心是否具有该分类标签，而不在乎分类标签个数，因此我们只根据是否具有标签进行分类统计。从图中可以看出，Other类的标签下的简单题最多，接下来依次是Math类、Techniques类、Common-Data-Structures类、Algorithms类。最少的是Advanced-Data-Structures类，几乎没有简单题。
+
+# 四、建模数据预处理
+## 重采样
+使用自定义的方式，进行重采样
+```{r}
+set.seed(2023)
+subset.NOT.EASY = subset(data,EASY==0)
+subset.EASY = subset(data,EASY==1)
+nsample = sample(x = dim(subset.NOT.EASY)[1], 
+                 size = dim(subset.NOT.EASY)[1]*0.380304, replace = F)
+subset.NOT.EASY.sample = subset.NOT.EASY[nsample, ]
+data.balanced = rbind(subset.EASY,subset.NOT.EASY.sample)
+```
+
+重采样后的数据较为平衡，如下所示：
+```{r}
+table(data.balanced$EASY) 
+```
+
+## 分割
+设置随机数种子
+```{r}
+set.seed(2023)
+```
+
+有一些属性在接下来的训练中不再使用，包括
+difficulty（等效于EASY，不应该作为自变量），Fundamentals（该变量含义未知），require（文本类变量，价值密度低），tips（文本类变量，价值密度低），将这些变量先删除: 
+```{r}
+data.balanced = data.balanced[,-c(6,45,46,47)]
+```
+
+然后按照7:3的比例划分训练集和测试集：
+```{r}
+nsample = sample(x = dim(data.balanced)[1], size = dim(data.balanced)[1]*0.7, replace = F)
+## 重新划分训练集和测试集
+data.train = data.balanced[nsample, ] 
+data.test = data.balanced[-nsample, ]
+```
+
+# 五、建模
+## CART决策树
+建立CART决策树如下
+```{r,results='hide'}
+result.rp = rpart(EASY~.,data = data.train,method='class')
+```
+
+变量的相对重要性排序如下
+```{r}
+importance = result.rp$variable.importance
+opar <- par(mfrow=c(1,1),mar=c(8, 4, 2, 0.5))
+barplot(importance,las=2,cex.names = 0.6,main='决策树模型的变量重要性')
+```
+可以看出Algorithms,tipsLen,sortedNum,topicNum,requireLen,quesClass,Advanced-Date-Structures这几个变量是相对重要的变量。
+
+决策树结果可视化：
+```{r}
+rpart.plot(result.rp,type=2)
+```
+**解读**：决策树首先根据标签是否为Algorithms将样本分为两类，
+对于标签为Algorithms的样本，只有29%是简单题，对于标签不包含Algorithms的样本，有67%是简单题，两个子集的简单题比例差别非常显著，这也反映出Algorithms是非常重要的指标。对于带有Algorithm标签的子集，则继续根据题库编号sortedNum等指标进一步分类。对于不带有Algorithm标签的，则继续根据Advanced-Data-Structures等指标进一步分类。
+
+## 随机森林
+
+建立随机森林模型如下，其中，经过测试，将参数ntree（多少棵树）设置为1000能够得到比较好的对测试集的预测结果。
+```{r}
+result.rf <- randomForest(EASY~., data = data.train, importance=TRUE,type='classification',ntree=1000)
+```
+
+变量的重要性排序和变量特征重要性图如下：
+```{r}
+opar <- par(mfrow=c(1,1),mar=c(8, 4, 2, 0.5))
+varImpPlot(result.rf,main='随机森林模型的变量重要性',cex=0.7)
+```
+**解读**：上图提供了两种衡量变量重要性的标准。第一种是将变量进行随机扰动，导致预测准确率下降越多的变量则越重要。第二种则是基于基尼系数的下降进行衡量。基于第一种标准，Algorithms, Advanced-Data-Structures, topicNum, requireLen, tipsLen是比较重要的变量。基于第二个标准，requireLen, tipsLen, sortedNum, Algorithms, topicNum是比较重要的变量。综合两个指标，可以认为Algorithms, requireLen, topicNum, tipsLen是比较重要的变量。
+
+## adaboost
+建立adaboost模型如下，其中，经过测试，将参数mfinal（迭代轮次）设置为100能够得到比较好的对测试集的预测效果。
+```{r}
+result.adaboost <- boosting(EASY~., data=data.train, boos=F,mfinal = 100)
+```
+
+变量重要性如下：
+```{r}
+importanceplot(result.adaboost,las=2,cex.name=0.6)
+```
+**解读**：由图可知sortedNum, tipsLen, requireLen, Algorithms, advaced-Data-Strutures, topicNum等是比较重要的变量，这与另外两个模型给出的较为重要的变量是基本一致的。
+
+## 模型比较
+使用以上三个模型的建模结果，对测试集数据进行预测
+```{r}
+pred.rp = predict(result.rp, data.test,type='prob')
+pred.rf = predict(result.rf,data.test,type='prob')
+pred.adaboost = predict(result.adaboost,data.test,type='prob')
+```
+
+绘制ROC曲线并展示AUC的值
+```{r,message=FALSE}
+opar <- par(mfrow=c(1,1))
+plot.roc(data.test$EASY, pred.rp[,2], 
+         col = "royalblue2", print.auc=TRUE,
+         auc.polygon=TRUE, auc.polygon.col="aliceblue", 
+         xlab = "FPR",ylab = "TPR", main = "决策树 ROC曲线",cex.lab=1.2)  
+
+plot.roc(data.test$EASY, pred.rf[,2], 
+         col = "royalblue2", print.auc=TRUE,
+         auc.polygon=TRUE, auc.polygon.col="aliceblue", 
+         xlab = "FPR",ylab = "TPR", main = "随机森林 ROC曲线",cex.lab=1.2)  
+
+plot.roc(data.test$EASY, pred.adaboost$prob[,2], 
+         col = "royalblue2", print.auc=TRUE,
+         auc.polygon=TRUE, auc.polygon.col="aliceblue", 
+         xlab = "FPR",ylab = "TPR", main = "adaboost ROC曲线",cex.lab=1.2)
+```
+
+**解读**：对比三个模型的AUC值，可以发现预测精度：随机森林>adaboost>决策树，随机森林的预测精度最高。

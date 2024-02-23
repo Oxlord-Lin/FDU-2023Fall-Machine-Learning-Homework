@@ -1,0 +1,9 @@
+ggplot2
+plotly
+dplyr
+magrittr
+cowplot
+pROC
+lattice
+caret
+tidyr

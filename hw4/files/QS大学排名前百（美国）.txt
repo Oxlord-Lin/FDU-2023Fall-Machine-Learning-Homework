@@ -1,0 +1,31 @@
+Massachusetts Institute of Technology
+Stanford University
+Harvard University
+California Institute of Technology
+University of Chicago
+Princeton University
+Cornell University
+Yale University
+Columbia University
+University of Pennsylvania
+University of Michigan
+Johns Hopkins University
+Duke University
+University of California
+Northwestern University
+New York University
+Carnegie Mellon University
+University of Wisconsin-Madison
+Brown University
+University of Texas at Austin
+University of Washington
+Georgia Institute of Technology
+University of Illinois at Urbana-Champaign
+University of North Carolina, Chapel Hill
+Rice University
+The Ohio State University
+Boston University
+Pennsylvania State University
+Purdue University
+University of California, Davis
+Washington University in St. Louis
